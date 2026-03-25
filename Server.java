@@ -6,9 +6,6 @@ public class Server{
     static HashMap<String , ClientHandler> clients = new HashMap<>();
     public static int idCounter =1;
     
-
-    
-
     public static void main(String[] args){
         try {
             ServerSocket serversocket = new ServerSocket(12345);                
@@ -22,7 +19,7 @@ public class Server{
                 clients.put(assignedID, handler);
                 new Thread(handler).start();
                 
-                System.out.println("Connected" + assignedID);
+                System.out.println("Socket Connected");
             }
              
         } catch (IOException e) {

@@ -19,6 +19,8 @@ public class ClientHandler implements Runnable{
         try {
             out.writeObject(message);
             out.flush();
+            
+            
         }
         catch(IOException e){
         System.out.println("Error" + e.getMessage());
@@ -31,10 +33,15 @@ public class ClientHandler implements Runnable{
 
         try {
             out = new ObjectOutputStream(socket.getOutputStream());
-            out.flush();
             ObjectInputStream in = new ObjectInputStream(socket.getInputStream());           
+            out.flush();
+        
+            Message UsernameMessage = (Message) in.readObject();
+            String DisplayUsername = UsernameMessage.Username; 
+            System.out.println("Client joined with username: " + DisplayUsername);
+            System.out.println(DisplayUsername + " assigned with ID: " + assignedID + "\n");
             clients.put(assignedID, this);
-            System.out.println("Clients connectected: "+ clients + ", ");
+            
             
             //implementing loop
             boolean a=true;
