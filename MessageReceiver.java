@@ -19,6 +19,7 @@ public class MessageReceiver implements Runnable {
         }
         catch (IOException | ClassNotFoundException e){
             System.out.println("disconnected from the Server");
+            e.printStackTrace();
         }
 
 }

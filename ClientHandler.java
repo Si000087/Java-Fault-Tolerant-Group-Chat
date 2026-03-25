@@ -4,18 +4,21 @@ import java.util.*;
 
 public class ClientHandler implements Runnable{
     private Socket socket;
+    private ObjectOutputStream out;
     //importing hashmap
     private HashMap<String, ClientHandler> clients;
-    public ClientHandler(Socket socket, HashMap<String, ClientHandler> clients){
+    private String assignedID;
+    public ClientHandler(Socket socket, HashMap<String, ClientHandler> clients, String assignedID){
     this.socket = socket;
     this.clients = clients;
+    this.assignedID = assignedID;
     }
     //bradcast message to users 
     //wip
     public void sendMessage (Message message){
         try {
-            ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
             out.writeObject(message);
+            out.flush();
         }
         catch(IOException e){
         System.out.println("Error" + e.getMessage());
@@ -26,16 +29,12 @@ public class ClientHandler implements Runnable{
 
     public void run(){
 
-        Message firstMessage =null;
         try {
-            ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
-            //firstMessage records teh users Unique id only once, so whnever the code runs the uid wont get cloned
-            firstMessage = (Message)in.readObject();
-            clients.put(firstMessage.UID, this);
-            //prints out the first ever message
-            
+            out = new ObjectOutputStream(socket.getOutputStream());
+            out.flush();
+            ObjectInputStream in = new ObjectInputStream(socket.getInputStream());           
+            clients.put(assignedID, this);
             System.out.println("Clients connectected: "+ clients + ", ");
-            System.out.println(firstMessage);
             
             //implementing loop
             boolean a=true;
@@ -49,7 +48,7 @@ public class ClientHandler implements Runnable{
             }
         //disconnection
         catch (SocketException e){
-            System.out.println( firstMessage.UID + " disconnected from the Server");
+            System.out.println(  assignedID + " disconnected from the Server");
 
         }
         //error detection
