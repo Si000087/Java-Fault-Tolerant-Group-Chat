@@ -22,10 +22,8 @@ public class Client{
             System.out.println("Welcome: " + Username);
             out.writeObject(new Message(Username, "JOIN"));
             out.flush();
-            MessageReceiver receiver = new MessageReceiver(socket);
-            new Thread(receiver).start();
             MessageReceiver receiver = new MessageReceiver(socket, out);
-            new Thread(receiver).start();
+            new Thread(receiver).start(
             
             
             //implemented loop
