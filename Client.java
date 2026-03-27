@@ -24,7 +24,8 @@ public class Client{
             out.flush();
             MessageReceiver receiver = new MessageReceiver(socket);
             new Thread(receiver).start();
-            
+            MessageReceiver receiver = new MessageReceiver(socket, out);
+            new Thread(receiver).start();
             
             
             //implemented loop
@@ -50,6 +51,8 @@ public class Client{
 
                 }
                 if(myMessage.equals("quit")){
+                    out.writeObject(new Message(Username, "LEAVE"));
+                    out.flush();
                     a = false;
                     System.out.println("Disconnecting");
                     break;

@@ -1,6 +1,8 @@
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.*;
 
 public class ClientHandler implements Runnable{
     private Socket socket;
@@ -8,6 +10,7 @@ public class ClientHandler implements Runnable{
     //importing hashmap
     private HashMap<String, ClientHandler> clients;
     private String assignedID;
+    final AtomicBoolean awaitingPong = new AtomicBoolean(false);
     public ClientHandler(Socket socket, HashMap<String, ClientHandler> clients, String assignedID){
     this.socket = socket;
     this.clients = clients;
@@ -57,7 +60,15 @@ public class ClientHandler implements Runnable{
             boolean a=true;
             while (a){
                 Message message = (Message)in.readObject();
-                System.out.println(message);   
+                System.out.println(message);
+                if (message.content.equals("LEAVE")) {
+                    handleLeave(displayUsername);
+                    return;
+                }
+                if (message.content.equals("PONG")) {
+                    awaitingPong.set(false);
+                    continue;
+                }
                 //private messaging
 
                 if (message.content.startsWith("PRIVATE:")){
@@ -83,12 +94,11 @@ public class ClientHandler implements Runnable{
             }
         //disconnection
         catch (SocketException e){
-            System.out.println(  assignedID + " disconnected from the Server");
+            System.out.println(assignedID + " socket error: " + e.getMessage());
+            handleFailure();
 
-        }
-        //error detection
-        catch (IOException | ClassNotFoundException e) {
-    
+        } catch (IOException | ClassNotFoundException e) {
+            handleFailure();
         }
             
     }

@@ -14,6 +14,7 @@ public class Server{
             ServerSocket serversocket = new ServerSocket(12345);                
             System.out.println("Starting Server"); 
             System.out.println("Waiting for users to connect...\n");
+            ClientHandler.startPingLoop();
             while(true) {
                 Socket socket = serversocket.accept();
                 String assignedID = "C" + idCounter;
