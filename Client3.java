@@ -4,7 +4,7 @@ import java.net.*;
 import java.util.Scanner;
 
 
-public class Client{
+public class Client3{
     
     public static void main(String[] args) { 
     
