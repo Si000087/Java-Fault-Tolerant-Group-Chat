@@ -4,7 +4,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 
-public class ClientHandler implements Runnable{
+public class ClientHandler implements Runnable {
     private Socket socket;
     private ObjectOutputStream out;
     private HashMap<String, ClientHandler> clients;
@@ -12,9 +12,9 @@ public class ClientHandler implements Runnable{
     private String displayUsername = "";
     public static HashMap<String, ClientHandler> clientsStatic = new HashMap<>();
     public static String idCoordinator = null;
-    final AtomicBoolean awaitingPong = new AtomicBoolean(false);
+    final AtomicBoolean awaitingPong = new AtomicBoolean(false); // from main: ping/pong tracking
 
-    public ClientHandler(Socket socket, HashMap<String, ClientHandler> clients, String assignedID){
+    public ClientHandler(Socket socket, HashMap<String, ClientHandler> clients, String assignedID) {
         this.socket = socket;
         this.clients = clients;
         this.assignedID = assignedID;
@@ -23,45 +23,49 @@ public class ClientHandler implements Runnable{
         }
     }
 
-    //broadcast message to users
-    public void sendMessage (Message message){
+    // broadcast message to a specific client
+    public void sendMessage(Message message) {
         try {
             out.writeObject(message);
             out.flush();
-        }
-        catch(IOException e){
-            System.out.println("Error" + e.getMessage());
+        } catch (IOException e) {
+            System.out.println("Error sending to " + assignedID + ": " + e.getMessage());
         }
     }
 
     @Override
-    public void run(){
+    public void run() {
         ObjectInputStream in = null;
         try {
             out = new ObjectOutputStream(socket.getOutputStream());
             in = new ObjectInputStream(socket.getInputStream());
             out.flush();
 
+            // read username from JOIN message
             Message UsernameMessage = (Message) in.readObject();
             displayUsername = UsernameMessage.Username;
             System.out.println("Client joined with username: " + displayUsername);
             System.out.println(displayUsername + " assigned with ID: " + assignedID + "\n");
             clients.put(assignedID, this);
 
-            //tell client their ID
-            Message idMsg = new Message("SERVER", assignedID);
-            out.writeObject(idMsg);
+            // from shani: store username, IP, port for /list command
+            Server.clientUsernames.put(assignedID, displayUsername);
+            String ip = socket.getInetAddress().getHostAddress();
+            int port = socket.getPort();
+            Server.clientIPs.put(assignedID, ip);
+            Server.clientPorts.put(assignedID, port);
+
+            // tell client their assigned ID
+            out.writeObject(new Message("SERVER", assignedID));
             out.flush();
 
-            //tell client who coordinator is
-            Message CoordMsg = new Message("SERVER", "COORDINATOR:" + ClientHandler.idCoordinator);
-            out.writeObject(CoordMsg);
+            // tell client who the coordinator is
+            out.writeObject(new Message("SERVER", "COORDINATOR:" + ClientHandler.idCoordinator));
             out.flush();
 
-            //implementing loop
-            boolean a = true;
-            while (a){
-                Message message = (Message)in.readObject();
+            // main message loop
+            while (true) {
+                Message message = (Message) in.readObject();
                 System.out.println(message);
 
                 // graceful leave
@@ -70,59 +74,67 @@ public class ClientHandler implements Runnable{
                     return;
                 }
 
-                //pong reply clears the ping flag
+                // from main: pong reply clears the ping flag
                 if (message.content.equals("PONG")) {
                     awaitingPong.set(false);
                     continue;
                 }
 
-                //private messaging
-                if (message.content.startsWith("PRIVATE:")){
-                    String[] parts = message.content.split(":",3);
-                    String targetID = parts[1].trim();
-                    String PrivateMessage = parts[2];
-
-                    ClientHandler target = clients.get(targetID);
-                    if (target == null){
-                        this.sendMessage(new Message("SERVER", "Invalid target ID: " + targetID));
-                        continue;
+                // from shani: /list command — send all member details
+                if (message.content.equals("/list")) {
+                    for (String id : Server.clients.keySet()) {
+                        String clientIP   = Server.clientIPs.get(id);
+                        int clientPort    = Server.clientPorts.get(id);
+                        String clientName = Server.clientUsernames.get(id);
+                        this.sendMessage(new Message("SERVER",
+                            "MEMBER:" + id + ":" + clientName + ":" + clientIP + ":" + clientPort));
                     }
-                    target.sendMessage(new Message(message.Username, "Private Message:" + PrivateMessage));
+                    this.sendMessage(new Message("SERVER", "COORDINATOR:" + Server.idCoordinator));
                     continue;
                 }
 
-                //Broadcast messaging
-                for (ClientHandler client : clients.values()){
+                // private messaging
+                if (message.content.startsWith("PRIVATE:")) {
+                    String[] parts = message.content.split(":", 3);
+                    String targetID      = parts[1].trim();
+                    String privateMsg    = parts[2];
+                    ClientHandler target = clients.get(targetID);
+                    if (target == null) {
+                        this.sendMessage(new Message("SERVER", "Invalid target ID: " + targetID));
+                        continue;
+                    }
+                    target.sendMessage(new Message(message.Username, "Private Message:" + privateMsg));
+                    continue;
+                }
+
+                // broadcast to all clients
+                for (ClientHandler client : clients.values()) {
                     client.sendMessage(message);
                 }
             }
 
-        //socket drop — treat as failure
-        } catch (SocketException e){
+        // socket drop — treat as failure
+        } catch (SocketException e) {
             System.out.println(assignedID + " socket error: " + e.getMessage());
             handleFailure(displayUsername);
-
         } catch (IOException | ClassNotFoundException e) {
             handleFailure(displayUsername);
         } finally {
-            try {
-                if (in != null) in.close();
-            } catch (IOException ignored) {}
-            try {
-                if (out != null) out.close();
-            } catch (IOException ignored) {}
-            try {
-                if (socket != null && !socket.isClosed()) socket.close();
-            } catch (IOException ignored) {}
+            try { if (in != null) in.close(); } catch (IOException ignored) {}
+            try { if (out != null) out.close(); } catch (IOException ignored) {}
+            try { if (socket != null && !socket.isClosed()) socket.close(); } catch (IOException ignored) {}
         }
     }
 
-    //Requirement 1: graceful leave
+    // graceful leave: client sent LEAVE
     private void handleLeave(String displayUsername) {
         synchronized (clients) {
             if (!clients.containsKey(assignedID)) return;
             clients.remove(assignedID);
         }
+        Server.clientUsernames.remove(assignedID);
+        Server.clientIPs.remove(assignedID);
+        Server.clientPorts.remove(assignedID);
         try { socket.close(); } catch (IOException ignored) {}
         System.out.println(assignedID + " (" + displayUsername + ") left gracefully.");
         broadcastToAllStatic(new Message("SERVER", "MEMBER_LEFT:" + assignedID + ":" + displayUsername));
@@ -131,16 +143,17 @@ public class ClientHandler implements Runnable{
         }
     }
 
-    //failure (missed ping or socket error)
+    // failure: missed ping or socket error
     private void handleFailure(String displayUsername) {
         String name = (displayUsername != null && !displayUsername.isEmpty()) ? displayUsername : this.displayUsername;
-        if (name == null || name.isEmpty()) {
-            name = "<unknown>";
-        }
+        if (name == null || name.isEmpty()) name = "<unknown>";
         synchronized (clients) {
             if (!clients.containsKey(assignedID)) return;
             clients.remove(assignedID);
         }
+        Server.clientUsernames.remove(assignedID);
+        Server.clientIPs.remove(assignedID);
+        Server.clientPorts.remove(assignedID);
         try { socket.close(); } catch (IOException ignored) {}
         System.out.println(assignedID + " removed due to failure.");
         broadcastToAllStatic(new Message("SERVER", "MEMBER_LEFT:" + assignedID + ":" + name));
@@ -149,7 +162,7 @@ public class ClientHandler implements Runnable{
         }
     }
 
-    // elect lowest ID as new coordinator
+    // elect the client with the lowest numeric ID as the new coordinator
     static void electCoordinator() {
         synchronized (ClientHandler.clientsStatic) {
             if (ClientHandler.clientsStatic.isEmpty()) {
@@ -161,12 +174,13 @@ public class ClientHandler implements Runnable{
                 .min(Comparator.comparingInt(id -> Integer.parseInt(id.substring(1))))
                 .orElse(null);
             ClientHandler.idCoordinator = newCoord;
+            Server.idCoordinator = newCoord;
             System.out.println("[Election] New coordinator: " + newCoord);
             broadcastToAllStatic(new Message("SERVER", "COORDINATOR:" + newCoord));
         }
     }
 
-    // ping loop started once from Server.main()
+    // ping loop: runs every 5s, removes clients that don't reply within 3s
     static void startPingLoop() {
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         scheduler.scheduleAtFixedRate(() -> {

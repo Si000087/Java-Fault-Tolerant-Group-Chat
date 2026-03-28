@@ -4,7 +4,7 @@ import java.net.*;
 
 public class MessageReceiver implements Runnable {
     private Socket socket;
-    private ObjectOutputStream out;
+    private ObjectOutputStream out; // from main: needed to reply PONG
 
     public MessageReceiver(Socket socket, ObjectOutputStream out) {
         this.socket = socket;
@@ -19,19 +19,32 @@ public class MessageReceiver implements Runnable {
             while (true) {
                 Message message = (Message) in.readObject();
 
-                if (message.Username.equals("SERVER")) {
+                // from shani: handle /list member entries before SERVER check
+                if (message.content.startsWith("MEMBER:")) {
+                    String[] parts = message.content.split(":");
+                    String id   = parts[1];
+                    String name = parts[2];
+                    String ip   = parts[3];
+                    String port = parts[4];
+                    System.out.println("Member ID: " + id + ", username: " + name
+                        + ", IP: " + ip + ", port: " + port);
+                    continue;
+                }
 
-                    if (message.content.startsWith("Invalid")){
+                if ("SERVER".equals(message.Username)) {
+
+                    if (message.content.startsWith("Invalid")) {
                         System.out.println(message.content);
                         continue;
                     }
-                    if(message.content.startsWith("COORDINATOR:")){
+
+                    if (message.content.startsWith("COORDINATOR:")) {
                         String coord = message.content.substring("COORDINATOR:".length());
                         System.out.println("The current coordinator is: " + coord);
                         continue;
                     }
 
-                    //member left — update member list
+                    // from main: member left notification
                     if (message.content.startsWith("MEMBER_LEFT:")) {
                         String[] parts = message.content.split(":", 3);
                         String leftID   = parts[1];
@@ -40,32 +53,32 @@ public class MessageReceiver implements Runnable {
                         continue;
                     }
 
-                    //ping — reply pong so server knows we are alive
+                    // from main: reply PONG to keep connection alive
                     if (message.content.equals("PING")) {
                         out.writeObject(new Message("CLIENT", "PONG"));
                         out.flush();
                         continue;
                     }
 
-                    // default: must be the ID assignment message
+                    // default: ID assignment message
                     System.out.println("Your unique ID: " + message.content);
                     continue;
                 }
 
-                if (message.content.startsWith("Private Message:")){
-                    System.out.println("[PRIVATE] " + message.Username + ": " + message.content.substring(16));
+                // private message display
+                if (message.content.startsWith("Private Message:")) {
+                    System.out.println("[PRIVATE] " + message.Username + ": "
+                        + message.content.substring("Private Message:".length()));
                     continue;
                 }
 
+                // normal broadcast message
                 System.out.println(message);
             }
-        }
-        catch (IOException | ClassNotFoundException e){
-            System.out.println("Disconnected from the Server");
+        } catch (IOException | ClassNotFoundException e) {
+            System.out.println("Disconnected from the Server.");
         } finally {
-            try {
-                if (in != null) in.close();
-            } catch (IOException ignored) {}
+            try { if (in != null) in.close(); } catch (IOException ignored) {}
         }
     }
 }

@@ -1,21 +1,21 @@
 import java.io.*;
+
 public class Message implements Serializable {
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 1L; // from main — prevents serialization issues
     String time;
     String Username;
     String content;
     String TargetUID;
-    
-    public Message(String args1, String args2){
+
+    public Message(String args1, String args2) {
         this.time = java.time.LocalDateTime.now().toString();
         Username = args1;
         content = args2;
         TargetUID = null;
-        
     }
+
     @Override
     public String toString() {
-    return "[" + time + "] " + Username + ": " + content;
+        return "[" + time + "] " + Username + ": " + content;
+    }
 }
-}
-
