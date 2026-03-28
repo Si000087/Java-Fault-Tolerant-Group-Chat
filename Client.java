@@ -7,37 +7,50 @@ import java.util.Scanner;
 public class Client{
     
     public static void main(String[] args) { 
-        Socket socket = null;
-        ObjectOutputStream out = null;
-        Scanner scanner = new Scanner(System.in);
+    
+  
         try {
-            socket = new Socket("192.168.0.249",12345);
-            out = new ObjectOutputStream(socket.getOutputStream());
+            Socket socket = new Socket("192.168.0.249",12345);
+            ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
             out.flush();
             
-            //saving client's username;
+            //saving clients's username;
             System.out.println("Enter your name:\n");
-            String Username= scanner.nextLine();
+            Scanner myName = new Scanner(System.in);
+            String Username= myName.nextLine();
             System.out.println("Connected to Server");
             System.out.println("Welcome: " + Username);
             out.writeObject(new Message(Username, "JOIN"));
             out.flush();
-            MessageReceiver receiver = new MessageReceiver(socket, out);
+            MessageReceiver receiver = new MessageReceiver(socket);
             new Thread(receiver).start();
+            
+            
             
             //implemented loop
             boolean a= true;
             while (a){
                 //sending custom message
-                String myMessage= scanner.nextLine();
+                Scanner myObj = new Scanner(System.in);
+                String myMessage= myObj.nextLine();
+                //list
+                if (myMessage.equals("/list") || myMessage.equals("/List")){
+                    out.writeObject(new Message(Username , "/list"));
+                    out.flush();
+                    continue;
+
+
+                }
+
+
                 //private messaging
                 if(myMessage.equals("/Private")||myMessage.equals("/private")){
                     //creating new inputs to read target and content without passing by the
                     // Message object arguments so it doesnt trigger a broadcast message
                     System.out.println("Enter target ID: ");
-                    String TargetUID = scanner.nextLine();
+                    String TargetUID = myObj.nextLine();
                     System.out.println("Enter message:");
-                    String PrivateMessage=scanner.nextLine(); 
+                    String PrivateMessage=myObj.nextLine(); 
                     String encoded = "PRIVATE:" + TargetUID + ": " + PrivateMessage;
                     out.writeObject(new Message(Username,encoded));
                         out.flush();
@@ -47,8 +60,6 @@ public class Client{
 
                 }
                 if(myMessage.equals("quit")){
-                    out.writeObject(new Message(Username, "LEAVE"));
-                    out.flush();
                     a = false;
                     System.out.println("Disconnecting");
                     break;
@@ -67,18 +78,10 @@ public class Client{
                 System.out.println("Error: " + e.getMessage());
             }
 
+            
         } catch (IOException e) {
             System.out.println("Error: " + e.getMessage());
-        } finally {
-            try {
-                if (out != null) out.close();
-            } catch (IOException ignored) {}
-            try {
-                if (socket != null && !socket.isClosed()) socket.close();
-            } catch (IOException ignored) {}
-            if (scanner != null) {
-                scanner.close();
-            }
+            
         }
     }
 }
