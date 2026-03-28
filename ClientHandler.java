@@ -7,27 +7,42 @@ import java.util.concurrent.atomic.*;
 public class ClientHandler implements Runnable {
     private Socket socket;
     private ObjectOutputStream out;
-    private HashMap<String, ClientHandler> clients;
+    private final ConcurrentMap<String, ClientHandler> clients;
     private String assignedID;
     private String displayUsername = "";
-    public static HashMap<String, ClientHandler> clientsStatic = new HashMap<>();
-    public static String idCoordinator = null;
+    public static final ConcurrentMap<String, ClientHandler> clientsStatic = ChatServerState.clients;
     final AtomicBoolean awaitingPong = new AtomicBoolean(false); // from main: ping/pong tracking
 
-    public ClientHandler(Socket socket, HashMap<String, ClientHandler> clients, String assignedID) {
+    public ClientHandler(Socket socket, ConcurrentMap<String, ClientHandler> clients, String assignedID) {
         this.socket = socket;
         this.clients = clients;
         this.assignedID = assignedID;
-        if (clients != null) {
-            clientsStatic = clients;
+    }
+
+    private String findClientIdByUsername(String username) {
+        String matchedId = null;
+        for (Map.Entry<String, String> entry : ChatServerState.clientUsernames.entrySet()) {
+            if (!entry.getValue().equalsIgnoreCase(username)) {
+                continue;
+            }
+            if (matchedId != null) {
+                return null;
+            }
+            matchedId = entry.getKey();
         }
+        return matchedId;
     }
 
     // broadcast message to a specific client
     public void sendMessage(Message message) {
+        if (out == null) {
+            return;
+        }
         try {
-            out.writeObject(message);
-            out.flush();
+            synchronized (out) {
+                out.writeObject(message);
+                out.flush();
+            }
         } catch (IOException e) {
             System.out.println("Error sending to " + assignedID + ": " + e.getMessage());
         }
@@ -46,22 +61,19 @@ public class ClientHandler implements Runnable {
             displayUsername = UsernameMessage.Username;
             System.out.println("Client joined with username: " + displayUsername);
             System.out.println(displayUsername + " assigned with ID: " + assignedID + "\n");
-            clients.put(assignedID, this);
 
             // from shani: store username, IP, port for /list command
-            Server.clientUsernames.put(assignedID, displayUsername);
+            ChatServerState.clientUsernames.put(assignedID, displayUsername);
             String ip = socket.getInetAddress().getHostAddress();
             int port = socket.getPort();
-            Server.clientIPs.put(assignedID, ip);
-            Server.clientPorts.put(assignedID, port);
+            ChatServerState.clientIPs.put(assignedID, ip);
+            ChatServerState.clientPorts.put(assignedID, port);
 
             // tell client their assigned ID
-            out.writeObject(new Message("SERVER", assignedID));
-            out.flush();
+            sendMessage(new Message("SERVER", assignedID));
 
             // tell client who the coordinator is
-            out.writeObject(new Message("SERVER", "COORDINATOR:" + ClientHandler.idCoordinator));
-            out.flush();
+            sendMessage(new Message("SERVER", "COORDINATOR:" + ChatServerState.idCoordinator));
 
             // main message loop
             while (true) {
@@ -82,25 +94,39 @@ public class ClientHandler implements Runnable {
 
                 // from shani: /list command — send all member details
                 if (message.content.equals("/list")) {
-                    for (String id : Server.clients.keySet()) {
-                        String clientIP   = Server.clientIPs.get(id);
-                        int clientPort    = Server.clientPorts.get(id);
-                        String clientName = Server.clientUsernames.get(id);
+                    for (String id : ChatServerState.clients.keySet()) {
+                        String clientIP   = ChatServerState.clientIPs.get(id);
+                        Integer clientPort = ChatServerState.clientPorts.get(id);
+                        String clientName = ChatServerState.clientUsernames.get(id);
+                        if (clientIP == null || clientPort == null || clientName == null) {
+                            continue;
+                        }
                         this.sendMessage(new Message("SERVER",
                             "MEMBER:" + id + ":" + clientName + ":" + clientIP + ":" + clientPort));
                     }
-                    this.sendMessage(new Message("SERVER", "COORDINATOR:" + Server.idCoordinator));
+                    this.sendMessage(new Message("SERVER", "COORDINATOR:" + ChatServerState.idCoordinator));
                     continue;
                 }
 
                 // private messaging
                 if (message.content.startsWith("PRIVATE:")) {
                     String[] parts = message.content.split(":", 3);
-                    String targetID      = parts[1].trim();
-                    String privateMsg    = parts[2];
+                    if (parts.length < 3) {
+                        this.sendMessage(new Message("SERVER", "Invalid private message format."));
+                        continue;
+                    }
+                    String targetInput = parts[1].trim();
+                    String privateMsg = parts[2];
+                    String targetID = targetInput;
                     ClientHandler target = clients.get(targetID);
                     if (target == null) {
-                        this.sendMessage(new Message("SERVER", "Invalid target ID: " + targetID));
+                        targetID = findClientIdByUsername(targetInput);
+                        if (targetID != null) {
+                            target = clients.get(targetID);
+                        }
+                    }
+                    if (target == null) {
+                        this.sendMessage(new Message("SERVER", "Invalid or ambiguous target: " + targetInput));
                         continue;
                     }
                     target.sendMessage(new Message(message.Username, "Private Message:" + privateMsg));
@@ -128,17 +154,18 @@ public class ClientHandler implements Runnable {
 
     // graceful leave: client sent LEAVE
     private void handleLeave(String displayUsername) {
+        sendMessage(new Message("SERVER", "DISCONNECTED"));
         synchronized (clients) {
             if (!clients.containsKey(assignedID)) return;
             clients.remove(assignedID);
         }
-        Server.clientUsernames.remove(assignedID);
-        Server.clientIPs.remove(assignedID);
-        Server.clientPorts.remove(assignedID);
+        ChatServerState.clientUsernames.remove(assignedID);
+        ChatServerState.clientIPs.remove(assignedID);
+        ChatServerState.clientPorts.remove(assignedID);
         try { socket.close(); } catch (IOException ignored) {}
         System.out.println(assignedID + " (" + displayUsername + ") left gracefully.");
         broadcastToAllStatic(new Message("SERVER", "MEMBER_LEFT:" + assignedID + ":" + displayUsername));
-        if (assignedID.equals(ClientHandler.idCoordinator)) {
+        if (assignedID.equals(ChatServerState.idCoordinator)) {
             electCoordinator();
         }
     }
@@ -151,13 +178,13 @@ public class ClientHandler implements Runnable {
             if (!clients.containsKey(assignedID)) return;
             clients.remove(assignedID);
         }
-        Server.clientUsernames.remove(assignedID);
-        Server.clientIPs.remove(assignedID);
-        Server.clientPorts.remove(assignedID);
+        ChatServerState.clientUsernames.remove(assignedID);
+        ChatServerState.clientIPs.remove(assignedID);
+        ChatServerState.clientPorts.remove(assignedID);
         try { socket.close(); } catch (IOException ignored) {}
         System.out.println(assignedID + " removed due to failure.");
         broadcastToAllStatic(new Message("SERVER", "MEMBER_LEFT:" + assignedID + ":" + name));
-        if (assignedID.equals(ClientHandler.idCoordinator)) {
+        if (assignedID.equals(ChatServerState.idCoordinator)) {
             electCoordinator();
         }
     }
@@ -166,21 +193,19 @@ public class ClientHandler implements Runnable {
     static void electCoordinator() {
         synchronized (ClientHandler.clientsStatic) {
             if (ClientHandler.clientsStatic.isEmpty()) {
-                ClientHandler.idCoordinator = null;
+                ChatServerState.idCoordinator = null;
                 System.out.println("[Election] No members left.");
                 return;
             }
             String newCoord = ClientHandler.clientsStatic.keySet().stream()
                 .min(Comparator.comparingInt(id -> Integer.parseInt(id.substring(1))))
                 .orElse(null);
-            ClientHandler.idCoordinator = newCoord;
-            Server.idCoordinator = newCoord;
+            ChatServerState.idCoordinator = newCoord;
             System.out.println("[Election] New coordinator: " + newCoord);
             broadcastToAllStatic(new Message("SERVER", "COORDINATOR:" + newCoord));
         }
     }
 
-    // ping loop: runs every 5s, removes clients that don't reply within 3s
     static void startPingLoop() {
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         scheduler.scheduleAtFixedRate(() -> {
@@ -188,15 +213,19 @@ public class ClientHandler implements Runnable {
             synchronized (ClientHandler.clientsStatic) {
                 snapshot = new ArrayList<>(ClientHandler.clientsStatic.values());
             }
-            for (ClientHandler c : snapshot) {
-                c.awaitingPong.set(true);
-                c.sendMessage(new Message("SERVER", "PING"));
+            for (ClientHandler client : snapshot) {
+                client.awaitingPong.set(true);
+                client.sendMessage(new Message("SERVER", "PING"));
             }
-            try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
-            for (ClientHandler c : snapshot) {
-                if (c.awaitingPong.get()) {
-                    System.out.println("[Ping] " + c.assignedID + " missed PONG — removing.");
-                    c.handleFailure(c.displayUsername);
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            for (ClientHandler client : snapshot) {
+                if (client.awaitingPong.get()) {
+                    System.out.println("[Ping] " + client.assignedID + " missed PONG — removing.");
+                    client.handleFailure(client.displayUsername);
                 }
             }
         }, 5000, 5000, TimeUnit.MILLISECONDS);

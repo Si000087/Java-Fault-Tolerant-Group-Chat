@@ -3,8 +3,8 @@ import java.io.*;
 import java.net.*;
 
 public class MessageReceiver implements Runnable {
-    private Socket socket;
-    private ObjectOutputStream out; // from main: needed to reply PONG
+    private final Socket socket;
+    private final ObjectOutputStream out; // from main: needed to reply PONG
 
     public MessageReceiver(Socket socket, ObjectOutputStream out) {
         this.socket = socket;
@@ -21,26 +21,32 @@ public class MessageReceiver implements Runnable {
 
                 // from shani: handle /list member entries before SERVER check
                 if (message.content.startsWith("MEMBER:")) {
-                    String[] parts = message.content.split(":");
+                    String[] parts = message.content.split(":", 5);
+                    if (parts.length < 5) {
+                        continue;
+                    }
                     String id   = parts[1];
                     String name = parts[2];
                     String ip   = parts[3];
                     String port = parts[4];
-                    System.out.println("Member ID: " + id + ", username: " + name
-                        + ", IP: " + ip + ", port: " + port);
+                    System.out.println("- " + id + " | " + name + " | " + ip + ":" + port);
                     continue;
                 }
 
                 if ("SERVER".equals(message.Username)) {
-
                     if (message.content.startsWith("Invalid")) {
                         System.out.println(message.content);
                         continue;
                     }
 
+                    if (message.content.equals("DISCONNECTED")) {
+                        System.out.println("Disconnected from the Server.");
+                        break;
+                    }
+
                     if (message.content.startsWith("COORDINATOR:")) {
                         String coord = message.content.substring("COORDINATOR:".length());
-                        System.out.println("The current coordinator is: " + coord);
+                        System.out.println("Coordinator: " + coord);
                         continue;
                     }
 
@@ -55,8 +61,10 @@ public class MessageReceiver implements Runnable {
 
                     // from main: reply PONG to keep connection alive
                     if (message.content.equals("PING")) {
-                        out.writeObject(new Message("CLIENT", "PONG"));
-                        out.flush();
+                        synchronized (out) {
+                            out.writeObject(new Message("CLIENT", "PONG"));
+                            out.flush();
+                        }
                         continue;
                     }
 
