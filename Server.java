@@ -18,11 +18,14 @@ public class Server{
             while(true) {
                 Socket socket = serversocket.accept();
                 String assignedID = "C" + idCounter;
-                if ( idCoordinator == null){
-                    idCoordinator = assignedID;}
+                if (idCoordinator == null){
+                    idCoordinator = assignedID;
+                    ClientHandler.idCoordinator = assignedID;
+                }
                 idCounter++;
-                ClientHandler handler = new ClientHandler(socket,clients,assignedID);
+                ClientHandler handler = new ClientHandler(socket, clients, assignedID);
                 clients.put(assignedID, handler);
+                ClientHandler.clientsStatic = clients;
                 new Thread(handler).start();
                 
                 System.out.println("Socket Connected");

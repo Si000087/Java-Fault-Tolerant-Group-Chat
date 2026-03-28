@@ -1,7 +1,6 @@
 //client side
 import java.io.*;
 import java.net.*;
-import java.util.*;
 
 public class MessageReceiver implements Runnable {
     private Socket socket;
@@ -14,8 +13,9 @@ public class MessageReceiver implements Runnable {
 
     @Override
     public void run() {
+        ObjectInputStream in = null;
         try {
-            ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
+            in = new ObjectInputStream(socket.getInputStream());
             while (true) {
                 Message message = (Message) in.readObject();
 
@@ -62,6 +62,10 @@ public class MessageReceiver implements Runnable {
         }
         catch (IOException | ClassNotFoundException e){
             System.out.println("Disconnected from the Server");
+        } finally {
+            try {
+                if (in != null) in.close();
+            } catch (IOException ignored) {}
         }
     }
 }

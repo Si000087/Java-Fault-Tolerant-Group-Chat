@@ -9,12 +9,18 @@ public class ClientHandler implements Runnable{
     private ObjectOutputStream out;
     private HashMap<String, ClientHandler> clients;
     private String assignedID;
+    private String displayUsername = "";
+    public static HashMap<String, ClientHandler> clientsStatic = new HashMap<>();
+    public static String idCoordinator = null;
     final AtomicBoolean awaitingPong = new AtomicBoolean(false);
 
     public ClientHandler(Socket socket, HashMap<String, ClientHandler> clients, String assignedID){
         this.socket = socket;
         this.clients = clients;
         this.assignedID = assignedID;
+        if (clients != null) {
+            clientsStatic = clients;
+        }
     }
 
     //broadcast message to users
@@ -30,10 +36,10 @@ public class ClientHandler implements Runnable{
 
     @Override
     public void run(){
-        String displayUsername = "";
+        ObjectInputStream in = null;
         try {
             out = new ObjectOutputStream(socket.getOutputStream());
-            ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
+            in = new ObjectInputStream(socket.getInputStream());
             out.flush();
 
             Message UsernameMessage = (Message) in.readObject();
@@ -48,7 +54,7 @@ public class ClientHandler implements Runnable{
             out.flush();
 
             //tell client who coordinator is
-            Message CoordMsg = new Message("SERVER", "COORDINATOR:" + Server.idCoordinator);
+            Message CoordMsg = new Message("SERVER", "COORDINATOR:" + ClientHandler.idCoordinator);
             out.writeObject(CoordMsg);
             out.flush();
 
@@ -98,6 +104,16 @@ public class ClientHandler implements Runnable{
 
         } catch (IOException | ClassNotFoundException e) {
             handleFailure(displayUsername);
+        } finally {
+            try {
+                if (in != null) in.close();
+            } catch (IOException ignored) {}
+            try {
+                if (out != null) out.close();
+            } catch (IOException ignored) {}
+            try {
+                if (socket != null && !socket.isClosed()) socket.close();
+            } catch (IOException ignored) {}
         }
     }
 
@@ -110,37 +126,41 @@ public class ClientHandler implements Runnable{
         try { socket.close(); } catch (IOException ignored) {}
         System.out.println(assignedID + " (" + displayUsername + ") left gracefully.");
         broadcastToAllStatic(new Message("SERVER", "MEMBER_LEFT:" + assignedID + ":" + displayUsername));
-        if (assignedID.equals(Server.idCoordinator)) {
+        if (assignedID.equals(ClientHandler.idCoordinator)) {
             electCoordinator();
         }
     }
 
     //failure (missed ping or socket error)
     private void handleFailure(String displayUsername) {
+        String name = (displayUsername != null && !displayUsername.isEmpty()) ? displayUsername : this.displayUsername;
+        if (name == null || name.isEmpty()) {
+            name = "<unknown>";
+        }
         synchronized (clients) {
             if (!clients.containsKey(assignedID)) return;
             clients.remove(assignedID);
         }
         try { socket.close(); } catch (IOException ignored) {}
         System.out.println(assignedID + " removed due to failure.");
-        broadcastToAllStatic(new Message("SERVER", "MEMBER_LEFT:" + assignedID + ":" + displayUsername));
-        if (assignedID.equals(Server.idCoordinator)) {
+        broadcastToAllStatic(new Message("SERVER", "MEMBER_LEFT:" + assignedID + ":" + name));
+        if (assignedID.equals(ClientHandler.idCoordinator)) {
             electCoordinator();
         }
     }
 
     // elect lowest ID as new coordinator
     static void electCoordinator() {
-        synchronized (Server.clients) {
-            if (Server.clients.isEmpty()) {
-                Server.idCoordinator = null;
+        synchronized (ClientHandler.clientsStatic) {
+            if (ClientHandler.clientsStatic.isEmpty()) {
+                ClientHandler.idCoordinator = null;
                 System.out.println("[Election] No members left.");
                 return;
             }
-            String newCoord = Server.clients.keySet().stream()
+            String newCoord = ClientHandler.clientsStatic.keySet().stream()
                 .min(Comparator.comparingInt(id -> Integer.parseInt(id.substring(1))))
                 .orElse(null);
-            Server.idCoordinator = newCoord;
+            ClientHandler.idCoordinator = newCoord;
             System.out.println("[Election] New coordinator: " + newCoord);
             broadcastToAllStatic(new Message("SERVER", "COORDINATOR:" + newCoord));
         }
@@ -151,8 +171,8 @@ public class ClientHandler implements Runnable{
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         scheduler.scheduleAtFixedRate(() -> {
             List<ClientHandler> snapshot;
-            synchronized (Server.clients) {
-                snapshot = new ArrayList<>(Server.clients.values());
+            synchronized (ClientHandler.clientsStatic) {
+                snapshot = new ArrayList<>(ClientHandler.clientsStatic.values());
             }
             for (ClientHandler c : snapshot) {
                 c.awaitingPong.set(true);
@@ -162,7 +182,7 @@ public class ClientHandler implements Runnable{
             for (ClientHandler c : snapshot) {
                 if (c.awaitingPong.get()) {
                     System.out.println("[Ping] " + c.assignedID + " missed PONG — removing.");
-                    c.handleFailure("");
+                    c.handleFailure(c.displayUsername);
                 }
             }
         }, 5000, 5000, TimeUnit.MILLISECONDS);
@@ -170,8 +190,8 @@ public class ClientHandler implements Runnable{
     }
 
     static void broadcastToAllStatic(Message msg) {
-        synchronized (Server.clients) {
-            for (ClientHandler c : Server.clients.values()) {
+        synchronized (ClientHandler.clientsStatic) {
+            for (ClientHandler c : ClientHandler.clientsStatic.values()) {
                 c.sendMessage(msg);
             }
         }

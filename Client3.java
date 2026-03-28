@@ -7,22 +7,22 @@ import java.util.Scanner;
 public class Client3{
     
     public static void main(String[] args) { 
-    
-  
+        Socket socket = null;
+        ObjectOutputStream out = null;
+        Scanner scanner = new Scanner(System.in);
         try {
-            Socket socket = new Socket("192.168.0.249",12345);
-            ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+            socket = new Socket("192.168.0.249",12345);
+            out = new ObjectOutputStream(socket.getOutputStream());
             out.flush();
             
-            //saving clients's username;
+            //saving client's username;
             System.out.println("Enter your name:\n");
-            Scanner myName = new Scanner(System.in);
-            String Username= myName.nextLine();
+            String Username= scanner.nextLine();
             System.out.println("Connected to Server");
             System.out.println("Welcome: " + Username);
             out.writeObject(new Message(Username, "JOIN"));
             out.flush();
-            MessageReceiver receiver = new MessageReceiver(socket);
+            MessageReceiver receiver = new MessageReceiver(socket, out);
             new Thread(receiver).start();
             
             
@@ -31,16 +31,15 @@ public class Client3{
             boolean a= true;
             while (a){
                 //sending custom message
-                Scanner myObj = new Scanner(System.in);
-                String myMessage= myObj.nextLine();
+                String myMessage= scanner.nextLine();
                 //private messaging
                 if(myMessage.equals("/Private")||myMessage.equals("/private")){
                     //creating new inputs to read target and content without passing by the
                     // Message object arguments so it doesnt trigger a broadcast message
                     System.out.println("Enter target ID: ");
-                    String TargetUID = myObj.nextLine();
+                    String TargetUID = scanner.nextLine();
                     System.out.println("Enter message:");
-                    String PrivateMessage=myObj.nextLine(); 
+                    String PrivateMessage=scanner.nextLine(); 
                     String encoded = "PRIVATE:" + TargetUID + ": " + PrivateMessage;
                     out.writeObject(new Message(Username,encoded));
                         out.flush();
@@ -68,10 +67,18 @@ public class Client3{
                 System.out.println("Error: " + e.getMessage());
             }
 
-            
         } catch (IOException e) {
             System.out.println("Error: " + e.getMessage());
-            
+        } finally {
+            try {
+                if (out != null) out.close();
+            } catch (IOException ignored) {}
+            try {
+                if (socket != null && !socket.isClosed()) socket.close();
+            } catch (IOException ignored) {}
+            if (scanner != null) {
+                scanner.close();
+            }
         }
     }
 }
